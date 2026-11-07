@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cork Nights — backend test client</title>
+<style>
+  :root { --bg:#0f1115; --panel:#1a1d24; --text:#e8e8ea; --muted:#9aa0aa; --accent:#4cc38a; --warn:#e5a50a; --err:#e5534b; --line:#2b2f38; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  .pill { font-size:12px; padding:3px 8px; border-radius:999px; background:var(--panel); border:1px solid var(--line); color:var(--muted); }
+  .pill.ok { color:var(--accent); border-color:var(--accent); }
+  .pill.bad { color:var(--err); border-color:var(--err); }
+  main { display:grid; grid-template-columns: 1fr 340px; gap:20px; padding:20px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .filters { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:16px; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  label.inline { flex-direction:row; align-items:center; gap:6px; font-size:14px; color:var(--text); }
+  input, select, button { font:inherit; padding:7px 9px; border-radius:7px; border:1px solid var(--line); background:#0c0e12; color:var(--text); }
+  input[type=number] { width:110px; }
+  button { cursor:pointer; background:var(--accent); color:#06140d; border:none; font-weight:600; }
+  button.secondary { background:#2b2f38; color:var(--text); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; transition: box-shadow .4s; }
+  .card.flash { box-shadow: 0 0 0 2px var(--accent); }
+  .card img { width:100%; height:130px; object-fit:cover; display:block; background:#222; }
+  .card .body { padding:10px 12px; }
+  .card h3 { margin:0 0 4px; font-size:16px; display:flex; justify-content:space-between; gap:8px; }
+  .lvl { color:var(--accent); letter-spacing:1px; }
+  .lvl .off { color:#444; }
+  .row { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
+  .tag { font-size:12px; padding:2px 7px; border-radius:6px; background:#262a33; }
+  .tag.free { background:#173a2a; color:var(--accent); }
+  .tag.paid { background:#3a2f12; color:var(--warn); }
+  .tag.age { background:#3a1717; color:#f19999; }
+  .prices { font-size:13px; color:var(--muted); }
+  .muted { color:var(--muted); font-size:12px; }
+  form .field { margin-bottom:10px; }
+  form input[type=number] { width:100%; }
+  form select { width:100%; }
+  .msg { margin-top:10px; font-size:13px; padding:8px; border-radius:7px; display:none; }
+  .msg.ok { display:block; background:#173a2a; color:var(--accent); }
+  .msg.warn { display:block; background:#3a2f12; color:var(--warn); }
+  .msg.err { display:block; background:#3a1717; color:#f19999; }
+  #log { font:12px ui-monospace, monospace; color:var(--muted); max-height:180px; overflow:auto; white-space:pre-wrap; }
+  #setup { display:none; margin:20px; padding:14px; border:1px solid var(--err); border-radius:10px; background:#2a1414; }
+</style>
+</head>
+<body>
+<!-- Optional: config.js (gitignored) can set window.CORK_CONFIG. Copy config.example.js. -->
+<script src="config.js"></script>
+<!-- supabase-js v2 UMD build; exposes window.supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
+
+<header>
+  <h1>🍺 Cork Nights — backend test client</h1>
+  <span id="rt" class="pill">realtime: connecting…</span>
+  <span id="win" class="pill">window: ?</span>
+  <span class="pill" id="dev"></span>
+</header>
+
+<div id="setup">
+  <b>Not configured.</b> Copy <code>config.example.js</code> to <code>config.js</code> and fill in your Project URL and
+  anon key, or edit the <code>CONFIG</code> constant at the top of the script in this file. See backend/README.md.
+</div>
+
+<main>
+  <section>
+    <div class="panel filters">
+      <label>Max pint (€)
+        <input id="f-max-pint" type="number" step="0.10" min="0" placeholder="any">
+      </label>
+      <label>Music
+        <select id="f-music"><option value="">Any</option></select>
+      </label>
+      <label>I am
+        <select id="f-age">
+          <option value="">Any age (show all)</option>
+          <option value="18">18–20</option>
+          <option value="21">21+</option>
+        </select>
+      </label>
+      <label class="inline"><input id="f-free" type="checkbox"> Free entry only</label>
+      <label class="inline"><input id="f-unpriced" type="checkbox"> Include venues with no recent price</label>
+      <button class="secondary" id="f-reset" type="button">Reset</button>
+    </div>
+    <div class="muted" id="count" style="margin-bottom:8px"></div>
+    <div class="grid" id="cards"></div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <h3 style="margin-top:0">Submit a report</h3>
+      <form id="report-form">
+        <div class="field"><label>Venue <select id="r-venue" required></select></label></div>
+        <div class="field"><label>Pint (€) <input id="r-pint" type="number" step="0.01" min="0.01" max="100"></label></div>
+        <div class="field"><label>Shot (€) <input id="r-shot" type="number" step="0.01" min="0.01" max="100"></label></div>
+        <div class="field"><label>Mixer (€) <input id="r-mixer" type="number" step="0.01" min="0.01" max="100"></label></div>
+        <div class="field">
+          <label>Entry
+            <select id="r-entry">
+              <option value="">Don't know / skip</option>
+              <option value="free">Free</option>
+              <option value="paid">Paid</option>
+            </select>
+          </label>
+        </div>
+        <div class="field" id="r-fee-wrap" style="display:none"><label>Entry fee (€) <input id="r-fee" type="number" step="0.01" min="0" max="100"></label></div>
+        <button type="submit">Submit report</button>
+        <div class="msg" id="r-msg"></div>
+      </form>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h3 style="margin-top:0">Live activity</h3>
+      <div id="log"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+// ============================================================================
+// CONFIG — paste your Project URL and anon/publishable key here, OR create
+// config.js (see config.example.js). NEVER use the service_role/secret key.
+// ============================================================================
+const CONFIG = window.CORK_CONFIG || {
+  SUPABASE_URL: 'https://YOUR-PROJECT-REF.supabase.co',
+  SUPABASE_ANON_KEY: 'YOUR-ANON-OR-PUBLISHABLE-KEY',
+};
+
+const $ = (id) => document.getElementById(id);
+const configured = !CONFIG.SUPABASE_URL.includes('YOUR-PROJECT') && !CONFIG.SUPABASE_ANON_KEY.startsWith('YOUR-');
+if (!configured) $('setup').style.display = 'block';
+
+const db = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+
+// ---- device id (used by the database rate limit) ---------------------------
+function getDeviceId() {
+  let id = null;
+  try { id = localStorage.getItem('cork_device_id'); } catch (_) {}
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+    try { localStorage.setItem('cork_device_id', id); } catch (_) {}
+  }
+  return id;
+}
+const DEVICE_ID = getDeviceId();
+$('dev').textContent = 'device: ' + DEVICE_ID.slice(0, 8) + '…';
+
+// ---- helpers -----------------------------------------------------------------
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const eur = (n) => (n == null ? '—' : '€' + Number(n).toFixed(2));
+function ago(ts) {
+  if (!ts) return 'no reports yet';
+  const mins = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  if (mins < 60 * 24) return Math.round(mins / 60) + ' h ago';
+  return Math.round(mins / 1440) + ' days ago';
+}
+function log(line) {
+  const t = new Date().toLocaleTimeString();
+  $('log').textContent = `[${t}] ${line}\n` + $('log').textContent;
+}
+
+// ---- venue cards -------------------------------------------------------------
+async function loadCards(highlightVenueId) {
+  const maxPint = $('f-max-pint').value;
+  const music = $('f-music').value;
+  const age = $('f-age').value;
+
+  const { data, error } = await db.rpc('search_venues', {
+    max_pint: maxPint === '' ? null : Number(maxPint),
+    music: music ? [music] : null,
+    free_only: $('f-free').checked,
+    max_age: age === '' ? null : Number(age),
+    include_unpriced: $('f-unpriced').checked,
+  });
+
+  if (error) {
+    $('cards').innerHTML = `<div class="msg err" style="display:block">Error loading venues: ${esc(error.message)}</div>`;
+    return;
+  }
+  $('count').textContent = `${data.length} venue${data.length === 1 ? '' : 's'}`;
+  $('cards').innerHTML = data.map(cardHtml).join('');
+  if (highlightVenueId) {
+    const el = document.querySelector(`[data-venue="${highlightVenueId}"]`);
+    if (el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1500); }
+  }
+}
+
+function cardHtml(v) {
+  const lvl = v.price_level
+    ? '€'.repeat(v.price_level) + `<span class="off">${'€'.repeat(3 - v.price_level)}</span>`
+    : '<span class="off">?</span>';
+  let entry;
+  if (v.free_entry === true) entry = '<span class="tag free">Free entry</span>';
+  else if (v.free_entry === false) entry = `<span class="tag paid">Entry ${v.entry_fee != null ? eur(v.entry_fee) : 'paid'}</span>`;
+  else entry = '<span class="tag">Entry: unknown</span>';
+  return `
+    <article class="card" data-venue="${v.id}">
+      <img src="${esc(v.image_url || '')}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+      <div class="body">
+        <h3><span>${esc(v.name)}</span><span class="lvl" title="price level">${lvl}</span></h3>
+        <div class="row">
+          <span class="tag">${esc(v.type)}</span>
+          ${entry}
+          <span class="tag age">${v.min_age}+</span>
+        </div>
+        <div class="row">${(v.music || []).map((m) => `<span class="tag">${esc(m)}</span>`).join('')}</div>
+        <div class="prices">Pint ${eur(v.median_pint_price)} · Shot ${eur(v.median_shot_price)} · Mixer ${eur(v.median_mixer_price)}</div>
+        <div class="muted">${v.report_count} recent report${v.report_count === 1 ? '' : 's'} · last ${ago(v.last_reported)}</div>
+      </div>
+    </article>`;
+}
+
+// ---- dropdowns -----------------------------------------------------------------
+async function loadDropdowns() {
+  const [venues, tags, settings] = await Promise.all([
+    db.from('venues').select('id, name, type').order('name'),
+    db.rpc('music_tags'),
+    db.from('app_settings').select('summary_window').single(),
+  ]);
+  if (venues.error) return log('venues error: ' + venues.error.message);
+  $('r-venue').innerHTML = '<option value="">Choose a venue…</option>' +
+    venues.data.map((v) => `<option value="${v.id}">${esc(v.name)} (${v.type})</option>`).join('');
+  if (!tags.error) {
+    $('f-music').innerHTML = '<option value="">Any</option>' + tags.data.map((t) => `<option>${esc(t)}</option>`).join('');
+  }
+  if (!settings.error) $('win').textContent = 'window: ' + settings.data.summary_window;
+}
+
+// ---- report form -----------------------------------------------------------------
+$('r-entry').addEventListener('change', () => {
+  $('r-fee-wrap').style.display = $('r-entry').value === 'paid' ? 'block' : 'none';
+});
+
+function showMsg(kind, text) { const m = $('r-msg'); m.className = 'msg ' + kind; m.textContent = text; }
+const numOrNull = (id) => ($(id).value === '' ? null : Number($(id).value));
+
+$('report-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const entry = $('r-entry').value;
+  const report = {
+    venue_id: Number($('r-venue').value),
+    pint_price: numOrNull('r-pint'),
+    shot_price: numOrNull('r-shot'),
+    mixer_price: numOrNull('r-mixer'),
+    free_entry: entry === '' ? null : entry === 'free',
+    entry_fee: entry === 'free' ? 0 : entry === 'paid' ? numOrNull('r-fee') : null,
+    device_id: DEVICE_ID,
+  };
+  if (!report.venue_id) return showMsg('err', 'Pick a venue.');
+  if ([report.pint_price, report.shot_price, report.mixer_price, report.free_entry, report.entry_fee].every((x) => x == null)) {
+    return showMsg('err', 'Enter at least one price or the entry info.');
+  }
+
+  const { data, error } = await db.from('reports').insert(report).select('id, flagged, flag_reason').single();
+  if (error) {
+    if (error.hint === 'rate_limited') return showMsg('warn', error.message);
+    return showMsg('err', 'Rejected: ' + error.message);
+  }
+  if (data.flagged) showMsg('warn', 'Saved, but flagged as unusual and won\'t affect the averages (' + data.flag_reason + ').');
+  else showMsg('ok', 'Thanks! Report #' + data.id + ' saved.');
+  $('report-form').reset(); $('r-fee-wrap').style.display = 'none';
+  loadCards(report.venue_id);   // don't rely on realtime for your own report
+});
+
+// ---- filters -----------------------------------------------------------------
+let filterTimer;
+['f-max-pint', 'f-music', 'f-age', 'f-free', 'f-unpriced'].forEach((id) =>
+  $(id).addEventListener('input', () => { clearTimeout(filterTimer); filterTimer = setTimeout(() => loadCards(), 250); }));
+$('f-reset').addEventListener('click', () => {
+  $('f-max-pint').value = ''; $('f-music').value = ''; $('f-age').value = '';
+  $('f-free').checked = false; $('f-unpriced').checked = false; loadCards();
+});
+
+// ---- realtime -----------------------------------------------------------------
+let refreshTimer;
+db.channel('reports-feed')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, (payload) => {
+    const r = payload.new;
+    log(`new report for venue ${r.venue_id}: pint ${r.pint_price ?? '-'}, shot ${r.shot_price ?? '-'}, mixer ${r.mixer_price ?? '-'}${r.flagged ? ' (flagged)' : ''}`);
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => loadCards(r.venue_id), 400);  // debounce bursts
+  })
+  .subscribe((status) => {
+    const el = $('rt');
+    el.textContent = 'realtime: ' + status.toLowerCase();
+    el.className = 'pill ' + (status === 'SUBSCRIBED' ? 'ok' : (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' ? 'bad' : ''));
+    log('realtime ' + status);
+  });
+
+// ---- go -------------------------------------------------------------------------
+if (configured) { loadDropdowns(); loadCards(); }
+</script>
+</body>
+</html>
