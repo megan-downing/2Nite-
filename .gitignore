@@ -1,0 +1,14 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# local test-client config (holds your project URL/key)
+backend/test-client/config.js
+
+# misc
+node_modules/
+.DS_Store
+.supabase/
+supabase/.temp/
+backend/supabase/.temp/
